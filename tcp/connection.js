@@ -59,6 +59,10 @@ function EsTcpConnection(endPoint) {
 	this._handler.on('connect', function(args) {
 		me.emit.apply(me, ['connect', args])
 	})
+  
+  this._handler.on('error', function(err) {
+		me.emit.call(me, 'error', err);
+	})
 }
 util.inherits(EsTcpConnection, EventEmitter)
 

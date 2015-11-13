@@ -46,6 +46,10 @@ var tcpPackageConnection = require('./tcpPackageConnection')
 							}
 						})
 					})
+          
+          connection.on('error', function(err) {
+            me.emit.call(me, 'error', err);
+          })
 
 					this._connection = connection
 				}
