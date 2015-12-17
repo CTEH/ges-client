@@ -174,7 +174,6 @@ EsConnectionLogicHandler.prototype._establishTcpConnection = function(endpoints)
 	})
 
 	tcpConnection.on('close', function() {
-		console.log("CALLING THIS NOW")
 		me.enqueueMessage(messages.tcpConnectionClosed(tcpConnection))
 	})
 
@@ -453,11 +452,6 @@ function handleTcpPackage(connection, package) {
     }
   }
 
-  //BLM: Investigate if correlationId will be undefined or empty
-  if(package.messageName === 'BadRequest') {
-  console.log('connection logic handler line 458')
-  	console.log(package)
-  }
   if(package.messageName === 'BadRequest' && !package.correlationId) {
     var message = '<no message>'
     try {
@@ -528,8 +522,6 @@ function handleTcpPackage(connection, package) {
       default: throw new Error('Unknown inspection.decision: ' + result.decision)
     }
   } else {
-	  console.log('connection logic handler line 532')
-  	console.log(package)
     LogDebug('HandleTcpPackage UNMAPPED PACKAGE with CorrelationId ' + package.correlationId
     	+ ', Command: ', package.messageName
     )
