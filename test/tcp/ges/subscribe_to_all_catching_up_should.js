@@ -1,5 +1,5 @@
 var client = require('../../../')
-	, ges = require('ges-test-helper').memory
+	, ges = require('apec-ges-test-helper').memory
 	, uuid = require('node-uuid')
 	, async = require('async')
 	, createTestEvent = require('../../createTestEvent')

@@ -7,10 +7,27 @@ var util = require('util')
 	, systemStreams = require('./systemStreams')
 	, eventData = require('../eventData')
 	, eventNumber = require('./eventNumber')
+	, operations = require('./operations')
 	, systemEventTypes = require('./systemEventTypes')
 	, streamMetadata = require('./streamMetadata')
 	, streamMetadataResult = require('./streamMetadataResult')
-	, transaction = require('./transaction')
+	, endpointDiscoverer = require('./staticEndpointDiscoverer')
+	, messages = require('./messages')
+	, ensure = require('../ensure')
+	, defaultSettings = {
+			heartbeatInterval: 3000
+		, heartbeatTimeout: 3000
+		, maxReconnections: 0
+		, operationTimeout: 1000
+		, operationTimeoutCheckPeriod: 100
+		, reconnectionDelay: 100
+/*
+		, defaultUserCredentials: {
+				username: 'username'
+			, passsword: 'changeit'
+			}
+*/
+		}
 
 module.exports = createConnection
 
@@ -19,10 +36,11 @@ function createConnection(opts, cb) {
 	opts = opts || {}
 	opts.host = opts.host || '127.0.0.1'
 	opts.port = opts.port || 1113
-	var connection = new EsTcpConnection({
+	var settings = opts.settings || defaultSettings
+		, connection = new EsTcpConnection(settings, endpointDiscoverer({
 				host: opts.host
 			, port: opts.port
-			})
+			}), opts.connectionName)
 		, onConnect = function() {
 				connection.removeListener('connect', onConnect)
 				connection.removeListener('error', onErr)
@@ -47,14 +65,15 @@ function createConnection(opts, cb) {
 }
 
 
-function EsTcpConnection(endPoint) {
+function EsTcpConnection(connectionSettings, endpointDiscoverer, connectionName) {
 	EventEmitter.call(this)
 
 	var me = this
 
-	this._endPoint = endPoint
-
-	this._handler = connectionLogicHandler()
+	Object.defineProperty(this, 'connectionName', { value: connectionName || 'ES-' + uuid.v4() })
+	Object.defineProperty(this, '_endpointDiscoverer', { value: endpointDiscoverer })
+	Object.defineProperty(this, '_handler', { value: connectionLogicHandler(this, connectionSettings) })
+	Object.defineProperty(this, '_settings', { value: connectionSettings })
 
 	this._handler.on('connect', function(args) {
 		me.emit.apply(me, ['connect', args])
@@ -67,87 +86,65 @@ function EsTcpConnection(endPoint) {
 util.inherits(EsTcpConnection, EventEmitter)
 
 EsTcpConnection.prototype.appendToStream = function(stream, appendData, cb) {
-	this.enqueueOperation({
-		name: 'AppendToStream'
-	, stream: stream
+	this.enqueueOperation(operations.appendToStream({
+	  stream: stream
 	, auth: appendData.auth
 	, data: appendData
 	, cb: cb
-	})
+	}))
+}
+
+EsTcpConnection.prototype.emitClose = function(reason) {
+	this.emit('close', reason)
 }
 
 EsTcpConnection.prototype.startTransaction = function(stream, transactionData, cb) {
 	var auth = transactionData.auth
 		, me = this
-	this.enqueueOperation({
-		name: 'StartTransaction'
-	, stream: stream
+	this.enqueueOperation(operations.startTransaction({
+	  stream: stream
 	, auth: auth
 	, data: transactionData
-	, cb: function(err, result) {
-			if(err) return cb(err)
-
-			cb(null, transaction(result.TransactionId, auth, me))
-		}
-	})
+	, connection: me
+	, cb: cb
+	}))
 }
 
 EsTcpConnection.prototype.transactionalWrite = function(writeData, cb) {
-	this.enqueueOperation({
-		name: 'TransactionalWrite'
-	, auth: writeData.auth
+	this.enqueueOperation(operations.transactionalWrite({
+	  auth: writeData.auth
 	, data: writeData
 	, cb: cb
-	})
+	}))
 }
 
 EsTcpConnection.prototype.commitTransaction = function(commitData, cb) {
-	this.enqueueOperation({
-		name: 'CommitTransaction'
-	, auth: commitData.auth
+	this.enqueueOperation(operations.commitTransaction({
+	  auth: commitData.auth
 	, data: commitData
 	, cb: cb
-	})
+	}))
 }
 
 EsTcpConnection.prototype.deleteStream = function(stream, deleteData, cb) {
-	this.enqueueOperation({
-		name: 'DeleteStream'
-	, stream: stream
+	this.enqueueOperation(operations.deleteStream({
+	  stream: stream
 	, auth: deleteData.auth
 	, data: deleteData
 	, cb: cb
-	})
+	}))
 }
 
-EsTcpConnection.prototype.close = function(cb) {
-	this._handler.enqueueMessage({
-		name: 'CloseConnection'
-	, data: {
-			reason: 'Connection close requested by client.'
-		, exception: null
-		}
-	, cb: cb
-	})
+EsTcpConnection.prototype.close = function() {
+	this._handler.enqueueMessage(messages.closeConnection('Connection close requested by client.', null))
 }
 
 EsTcpConnection.prototype.connect = function() {
-	this._handler.enqueueMessage({
-		name: 'StartConnection'
-	, data: {
-			endPoint: this._endPoint
-		}
-	, cb: function(err) {
-			// NoOp?
-		}
-	})
+	this._handler.enqueueMessage(messages.startConnection(this._endpointDiscoverer, function(err) { }))
 }
 
 EsTcpConnection.prototype.enqueueOperation = function(operationData) {
-	this._handler.enqueueMessage({
-		name: 'StartOperation'
-	, data: operationData
-	})
+	this._handler.enqueueMessage(messages.startOperation(operationData, 3, 10000))
 }
 
 EsTcpConnection.prototype.isInState = function(stateName) {
@@ -155,21 +152,19 @@ EsTcpConnection.prototype.isInState = function(stateName) {
 }
 
 EsTcpConnection.prototype.readAllEventsBackward = function(readData, cb) {
-	this.enqueueOperation({
-		name: 'ReadAllEventsBackward'
-	, auth: readData.auth
+	this.enqueueOperation(operations.readAllEventsBackward({
+	  auth: readData.auth
 	, data: readData
 	, cb: cb
-	})
+	}))
 }
 
 EsTcpConnection.prototype.readAllEventsForward = function(readData, cb) {
-	this.enqueueOperation({
-		name: 'ReadAllEventsForward'
-	, auth: readData.auth
+	this.enqueueOperation(operations.readAllEventsForward({
+	  auth: readData.auth
 	, data: readData
 	, cb: cb
-	})
+	}))
 }
 
 EsTcpConnection.prototype.readEvent = function(stream, readData, cb) {
@@ -186,13 +181,13 @@ EsTcpConnection.prototype.readEvent = function(stream, readData, cb) {
 		return
 	}
 
-	this.enqueueOperation({
+	this.enqueueOperation(operations.readEvent({
 		name: 'ReadEvent'
 	, stream: stream
 	, auth: readData.auth
 	, data: readData
 	, cb: cb
-	})
+	}))
 }
 
 EsTcpConnection.prototype.readStreamEventsBackward = function(stream, readData, cb) {
@@ -203,13 +198,12 @@ EsTcpConnection.prototype.readStreamEventsBackward = function(stream, readData, 
 		return
 	}
 
-	this.enqueueOperation({
-		name: 'ReadStreamEventsBackward'
-	, stream: stream
+	this.enqueueOperation(operations.readStreamEventsBackward({
+	  stream: stream
 	, auth: readData.auth
 	, data: readData
 	, cb: cb
-	})
+	}))
 }
 
 EsTcpConnection.prototype.readStreamEventsForward = function(stream, readData, cb) {
@@ -226,13 +220,12 @@ EsTcpConnection.prototype.readStreamEventsForward = function(stream, readData, c
 		return
 	}
 
-	this.enqueueOperation({
-		name: 'ReadStreamEventsForward'
-	, stream: stream
+	this.enqueueOperation(operations.readStreamEventsForward({
+	  stream: stream
 	, auth: readData.auth
 	, data: readData
 	, cb: cb
-	})
+	}))
 }
 
 EsTcpConnection.prototype.setStreamMetadata = function(stream, setData, cb) {
@@ -240,16 +233,11 @@ EsTcpConnection.prototype.setStreamMetadata = function(stream, setData, cb) {
 		, metadata = Buffer.isBuffer(rawMetadata) ? rawMetadata : new Buffer(rawMetadata.toJSON())
 		, metaevent = eventData(uuid.v4(), systemEventTypes.streamMetadata, true, metadata)
 		, appendData = {
-				expectedVersion: setData.expectedMetastreamVersion
+				auth: setData.auth
+			, expectedVersion: setData.expectedMetastreamVersion
 			, events: [ metaevent ]
 			}
-	this.enqueueOperation({
-		name: 'AppendToStream'
-	, stream: systemStreams.metastreamOf(stream)
-	, auth: setData.auth
-	, data: appendData
-	, cb: cb
-	})
+	this.appendToStream(systemStreams.metastreamOf(stream), appendData, cb)
 }
 
 EsTcpConnection.prototype.getStreamMetadata = function(stream, getData, cb) {
@@ -290,15 +278,11 @@ EsTcpConnection.prototype.subscribeToAll = function(subscriptionData) {
 
 	var subscription = createSubscription()
 
-	this._handler.enqueueMessage({
-		name: 'StartSubscription'
-	, data: {
-			name: 'SubscribeToStream'
-		, auth: subscriptionData.auth
-		, data: subscriptionData
-		, subscription: subscription
-		}
-	})
+	this._handler.enqueueMessage(messages.startSubscription({
+	  auth: subscriptionData.auth
+	, data: subscriptionData
+	, subscription: subscription
+	}, 0, 10000))
 
 	return subscription
 }
@@ -316,16 +300,12 @@ EsTcpConnection.prototype.subscribeToStream = function(stream, subscriptionData)
 
 	var subscription = createSubscription()
 
-	this._handler.enqueueMessage({
-		name: 'StartSubscription'
-	, data: {
-			name: 'SubscribeToStream'
-		, stream: stream
-		, auth: subscriptionData.auth
-		, data: subscriptionData
-		, subscription: subscription
-		}
-	})
+	this._handler.enqueueMessage(messages.startSubscription({
+	  stream: stream
+	, auth: subscriptionData.auth
+	, data: subscriptionData
+	, subscription: subscription
+	}, 0, 10000))
 
 	return subscription
 }

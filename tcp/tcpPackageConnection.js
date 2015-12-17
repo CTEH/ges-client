@@ -1,6 +1,7 @@
 var net = require('net')
 	, util = require('util')
 	, EventEmitter = require('events').EventEmitter
+	, endpoint = require('./endpoint')
 	, framer = require('./lengthPrefixMessageFramer')
 	, messageReceiver = require('./messageReceiver')
 
@@ -15,7 +16,6 @@ function TcpPackageConnection(opts) {
 	EventEmitter.call(this)
 
 	var socket = net.connect(opts.endPoint)
-		, closeCallbacks = []
 		, receiver = messageReceiver()
 		, me = this
 
@@ -27,14 +27,12 @@ function TcpPackageConnection(opts) {
 		receiver.processData(data)
 	})
 
-	socket.on('error', function() {
-		me.emit.apply(me, ['error'].concat(Array.prototype.slice.call(arguments, 0)))
+	socket.on('error', function(err) {
+		me.emit('error', err)
 	})
 
 	socket.on('close', function(result) {
-		closeCallbacks.forEach(function(cb) {
-			cb(null)
-		})
+		me.isClosed = true
 		me.emit.call(me, 'close', result)
 	})
 
@@ -45,19 +43,37 @@ function TcpPackageConnection(opts) {
 		})
 	})
 
-	this._socket = socket
-	this._closeCallbacks = closeCallbacks
+	Object.defineProperty(this, '_socket', { value: socket })
+
+	Object.defineProperty(this, 'connectionId', { value: opts.connectionId })
+
+	this.isClosed = false
+	this.localEndpoint = new endpoint()
+	this.remoteEndpoint = new endpoint(opts.endPoint.host, opts.endPoint.port)
 }
 util.inherits(TcpPackageConnection, EventEmitter)
 
 
+TcpPackageConnection.prototype.cleanup = function() {
+	this._socket.removeAllListeners()
+	this.removeAllListeners()
+}
+
 TcpPackageConnection.prototype.close = function(reason, cb) {
-	this._closeCallbacks.push(cb)
+	var me = this
+	this._socket.removeAllListeners('close')
+	this._socket.on('close', function(result) {
+		me.isClosed = true
+		cb()
+	})
 	this._socket.destroy()
 }
 
 TcpPackageConnection.prototype.enqueueSend = function(packetData) {
-	var packet = framer.frame(packetData.messageName, packetData.correlationId, packetData.payload, packetData.auth)
+	var packet = framer.frame(packetData.messageName, packetData.correlationId, packetData.payload, packetData.userCredentials)
 
 	this._socket.write(packet)
 }
+
+
+

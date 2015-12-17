@@ -1,5 +1,5 @@
 var client = require('../../../')
-	, ges = require('ges-test-helper').memory
+	, ges = require('apec-ges-test-helper').memory
 	, uuid = require('node-uuid')
 	, createTestEvent = require('../../createTestEvent')
 	, range = require('../../range')
@@ -93,7 +93,7 @@ describe('when_working_with_stream_metadata_as_byte_array', function() {
 				}
 
 		connection.setStreamMetadata(stream, setData, function(err) {
-			err.message.should.endWith('Wrong expected version.')
+			err.should.be.wrongExpectedVersion()
 			done()
 		})
   })

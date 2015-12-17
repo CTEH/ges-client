@@ -1,5 +1,5 @@
 var client = require('../../../')
-	, ges = require('ges-test-helper').memory
+	, ges = require('apec-ges-test-helper').memory
 	, uuid = require('node-uuid')
 	, createTestEvent = require('../../createTestEvent')
 	, range = require('../../range')
@@ -137,8 +137,7 @@ describe('when_committing_empty_transaction', function() {
   			, events: createTestEvent()
 		  	}
   	connection.appendToStream(stream, appendOptions, function(err, appendResult) {
-  		should.not.be.null(err)
-  		err.message.should.equal('Wrong expected version.')
+			err.should.be.wrongExpectedVersion()
 			done()
   	})
   })
