@@ -24,9 +24,6 @@
     "mocha": "^1.21.4",
     "should": "^4.0.4"
   },
-  "engines": {
-    "node": "0.10.x"
-  },
   "scripts": {
     "test": "set ES_BIN=d:\\dev\\eventstore\\eventstoreOSS\\&& mocha -r should -R spec -t 10s test/*.js test/tcp/**/*.js test/tcp/*.js",
     "watch": "mocha -w -r should -R spec -t 10s test/**/*.js"
