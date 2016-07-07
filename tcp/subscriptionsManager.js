@@ -116,7 +116,7 @@ SubscriptionsManager.prototype.purgeSubscribedAndDroppedSubscriptions = function
 	this._getActive().filter(function(subscriptionItem) {
 		return subscriptionItem.isSubscribed && subscriptionItem.connectionId === connectionId
 	}).forEach(function(subscriptionItem) {
-		subscription.operation.connectionClosed()
+		subscriptionItem.operation.connectionClosed()
 		delete activeSubscriptions[subscriptionItem.correlationId]
 	})
 }
